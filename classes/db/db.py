@@ -91,7 +91,6 @@ class Db:
     def init_database(self):
         connection = self.get_connection()
         try:
-            self.drop_tables(connection)
             self.create_tables(connection)
         finally:
             connection.close()

@@ -75,7 +75,38 @@ Eternal Weekend Tournament Toolkit
         print("Get Standings\n")
 
     def get_maindeck_stats(self):
-        print("Get Maindeck Stats\n")
+        file_name = "maindeck_cards.xlsx"
+        output_dir = ExcelHelper.prepare_output_file(file_name)
+
+        connection = Db().get_connection()
+        try:
+            rows = connection.execute(
+                """
+                SELECT c.name AS card_name, SUM(dl.total) AS total
+                FROM decklist dl
+                JOIN card c ON dl.id_card = c.id
+                WHERE dl.is_maindeck = 1
+                GROUP BY c.name
+                ORDER BY total DESC, c.name ASC
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        if not rows:
+            print("No maindeck card data found.\n")
+            return
+
+        data = [[row["card_name"], row["total"]] for row in rows]
+
+        file_path = ExcelHelper.export_to_excel(
+            data=data,
+            headers=["card_name", "total"],
+            file_name=file_name,
+            sheet_name="Maindeck Stats",
+            output_dir=output_dir,
+        )
+        print(f"\nMaindeck stats exported to {file_path} ({len(data)} unique cards)\n")
 
     def get_sideboard_stats(self):
         print("Get Sideboard Stats\n")
