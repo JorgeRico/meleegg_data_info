@@ -282,7 +282,8 @@ Eternal Weekend Tournament Toolkit
                 case "6":
                     self.get_sideboard_stats()
                 case _:
-                    print("Invalid option\n")
+                    print("\nInvalid option\n")
+                    self.press_any_key()
                     continue
             self.press_any_key()
             self.clear_screen()
