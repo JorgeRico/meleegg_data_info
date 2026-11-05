@@ -113,3 +113,17 @@ class Standings:
             start += PAGE_SIZE
             draw += 1
         return matches
+
+    @classmethod
+    def insert_all(cls, connection, standings) -> None:
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO standings (id_player, id_round, match_record, game_record, points)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (s["id_player"], s["id_round"], s["match_record"], s["game_record"], s["points"])
+                for s in standings
+            ],
+        )
+        connection.commit()

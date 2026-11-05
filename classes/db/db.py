@@ -17,6 +17,7 @@ class Db:
 
     def drop_tables(self, connection):
         connection.execute("DROP TABLE IF EXISTS match")
+        connection.execute("DROP TABLE IF EXISTS standings")
         connection.execute("DROP TABLE IF EXISTS player")
         connection.execute("DROP TABLE IF EXISTS round")
         connection.execute("DROP TABLE IF EXISTS decklist")
@@ -62,7 +63,21 @@ class Db:
                 id_player_2 INTEGER NOT NULL,
                 player_1_wins INTEGER NOT NULL,
                 player_2_wins INTEGER NOT NULL,
-                text_result TEXT NOT NULL
+                text_result TEXT NOT NULL,
+                table_number INTEGER,
+                is_feature_match INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS standings (
+                id_player INTEGER NOT NULL,
+                id_round INTEGER NOT NULL,
+                match_record TEXT NOT NULL,
+                game_record TEXT NOT NULL,
+                points INTEGER NOT NULL,
+                PRIMARY KEY (id_player, id_round)
             )
             """
         )

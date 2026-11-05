@@ -111,6 +111,7 @@ class Tournament:
         round_objects = []
         players = {}
         all_matches = []
+        all_player_standings = []
         decks = {}
         print("\n - Fetching round data...")
         for round_info in rounds:
@@ -127,6 +128,21 @@ class Tournament:
             )
             players.update(Player.from_standings(raw_standings))
             decks.update(Deck.from_standings_data(raw_standings))
+
+            for standing in raw_standings:
+                team = standing.get("Team") or {}
+                team_players = team.get("Players", []) or []
+                player_id = team_players[0]["ID"] if team_players else 0
+                all_player_standings.append(
+                    {
+                        "id_player": player_id,
+                        "id_round": standing["RoundId"],
+                        "match_record": standing.get("MatchRecord", ""),
+                        "game_record": standing.get("GameRecord", ""),
+                        "points": standing.get("Points", 0),
+                    }
+                )
+
             print(
                 f"   Round {round_info['round_name']} ({round_id}): "
                 f"   {len(raw_standings)} standings fetched"
@@ -187,6 +203,7 @@ class Tournament:
             Decklist.insert_all(connection, all_decklists)
 
             Player.insert_all(connection, list(players.values()))
+            Standings.insert_all(connection, all_player_standings)
             Match.insert_all(connection, all_matches)
         finally:
             connection.close()
