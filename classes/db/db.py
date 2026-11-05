@@ -10,8 +10,9 @@ class Db:
         DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     def get_connection(self):
-        connection = sqlite3.connect(DATABASE_PATH)
+        connection = sqlite3.connect(DATABASE_PATH, timeout=30)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
         return connection
 
     def drop_tables(self, connection):
@@ -89,6 +90,8 @@ class Db:
 
     def init_database(self):
         connection = self.get_connection()
-        self.drop_tables(connection)
-        self.create_tables(connection)
-        connection.close()
+        try:
+            self.drop_tables(connection)
+            self.create_tables(connection)
+        finally:
+            connection.close()

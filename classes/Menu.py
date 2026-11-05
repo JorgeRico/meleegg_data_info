@@ -3,6 +3,8 @@ import subprocess
 import sys
 
 from classes.Tournament import DEFAULT_TOURNAMENT_URL, Tournament
+from classes.db import Db
+from helpers import ExcelHelper
 
 
 class Menu:
@@ -21,7 +23,6 @@ Eternal Weekend Tournament Toolkit
 """
 
     def __init__(self):
-        from classes.db import Db
         Db().init_database()
 
     def show_menu(self):
@@ -35,7 +36,37 @@ Eternal Weekend Tournament Toolkit
               f"{data.get('rounds_count')} rounds, saved to raw_data/")
 
     def get_player_decklists(self):
-        print("Get Player Decklists\n")
+        file_name = "decklists.xlsx"
+        output_dir = ExcelHelper.prepare_output_file(file_name)
+
+        connection = Db().get_connection()
+        try:
+            rows = connection.execute(
+                """
+                SELECT d.name AS decklist_name, COUNT(p.id) AS total
+                FROM player p
+                JOIN deck d ON p.decklist_id = d.id
+                GROUP BY d.name
+                ORDER BY total DESC, d.name ASC
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        if not rows:
+            print("No decklist data found.\n")
+            return
+
+        data = [[row["decklist_name"], row["total"]] for row in rows]
+
+        file_path = ExcelHelper.export_to_excel(
+            data=data,
+            headers=["decklist_name", "total"],
+            file_name=file_name,
+            sheet_name="Decklists",
+            output_dir=output_dir,
+        )
+        print(f"\nDecklists exported to {file_path} ({len(data)} unique decklists)\n")
 
     def get_decklist_stats(self):
         print("Get Decklist Stats\n")
