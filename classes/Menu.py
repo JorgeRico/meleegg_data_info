@@ -72,6 +72,114 @@ Eternal Weekend Tournament Toolkit
     def get_decklist_stats(self):
         print("Get Decklist Stats\n")
 
+    def get_points_map(self, connection) -> dict:
+        """Pre-load all standings points: (id_player, id_round) -> points."""
+        rows = connection.execute(
+            "SELECT id_player, id_round, points FROM standings"
+        ).fetchall()
+        return {(row["id_player"], row["id_round"]): row["points"] for row in rows}
+
+    def get_prev_round_map(self, rounds) -> tuple:
+        """Build mapping of round_id -> previous_round_id. Returns (round_list, prev_round_map)."""
+        round_list = [(r["id"], r["name"]) for r in rounds]
+        prev_round_map = {}
+        for i in range(1, len(round_list)):
+            prev_round_map[round_list[i][0]] = round_list[i - 1][0]
+        return round_list, prev_round_map
+
+    def get_round_matches(self, connection, round_id) -> list:
+        """Get matches for a round with player names, decklist names, and standings."""
+        return connection.execute(
+            """
+            SELECT
+                m.id_player_1,
+                m.id_player_2,
+                m.table_number,
+                p1.display_name AS player_1_name,
+                p2.display_name AS player_2_name,
+                d1.name AS player_1_decklist_name,
+                d2.name AS player_2_decklist_name,
+                s1.match_record AS text_result,
+                s1.game_record AS game_record
+            FROM match m
+            LEFT JOIN player p1 ON m.id_player_1 = p1.id
+            LEFT JOIN player p2 ON m.id_player_2 = p2.id
+            LEFT JOIN deck d1 ON p1.decklist_id = d1.id
+            LEFT JOIN deck d2 ON p2.decklist_id = d2.id
+            LEFT JOIN standings s1 ON s1.id_player = m.id_player_1 AND s1.id_round = m.id_round
+            WHERE m.id_round = ?
+            ORDER BY m.id
+            """,
+            (round_id,),
+        ).fetchall()
+
+    def build_standings_workbook(
+        self,
+        connection,
+        round_list,
+        prev_round_map,
+        all_standings_points,
+    ) -> Workbook:
+        """Build standings workbook with one sheet per round."""
+        workbook = Workbook()
+
+        for round_id, round_name in round_list:
+            prev_round_id = prev_round_map.get(round_id)
+
+            matches = self.get_round_matches(connection, round_id)
+
+            if not matches:
+                continue
+
+            sheet_name = round_name[:31]
+            if sheet_name in workbook.sheetnames:
+                sheet_name = f"{sheet_name[:27]}..."
+            sheet = workbook.create_sheet(title=sheet_name)
+            sheet.append(
+                [
+                    "player_1",
+                    "player_1_points",
+                    "player_2",
+                    "player_2_points",
+                    "text_result",
+                    "game_record",
+                    "player_1_decklist_name",
+                    "player_2_decklist_name",
+                    "table",
+                ]
+            )
+
+            for match in matches:
+                p1_points = (
+                    all_standings_points.get((match["id_player_1"], prev_round_id), 0)
+                    if prev_round_id is not None
+                    else 0
+                )
+                p2_points = (
+                    all_standings_points.get((match["id_player_2"], prev_round_id), 0)
+                    if prev_round_id is not None
+                    else 0
+                )
+
+                sheet.append(
+                    [
+                        match["player_1_name"],
+                        p1_points,
+                        match["player_2_name"],
+                        p2_points,
+                        match["text_result"],
+                        match["game_record"],
+                        match["player_1_decklist_name"],
+                        match["player_2_decklist_name"],
+                        match["table_number"],
+                    ]
+                )
+
+        if "Sheet" in workbook.sheetnames:
+            del workbook["Sheet"]
+
+        return workbook
+
     def get_standings(self):
         file_name = "standings.xlsx"
         output_dir = ExcelHelper.prepare_output_file(file_name)
@@ -86,98 +194,16 @@ Eternal Weekend Tournament Toolkit
                 print("No round data found.\n")
                 return
 
-            # Build previous round mapping
-            round_list = [(r["id"], r["name"]) for r in rounds]
-            prev_round_map = {}
-            for i in range(1, len(round_list)):
-                prev_round_map[round_list[i][0]] = round_list[i - 1][0]
+            round_list, prev_round_map = self.get_prev_round_map(rounds)
+            all_standings_points = self.get_points_map(connection)
 
-            # Pre-load all standings points: (id_player, id_round) -> points
-            all_standings_points = {}
-            standings_rows = connection.execute(
-                "SELECT id_player, id_round, points FROM standings"
-            ).fetchall()
-            for row in standings_rows:
-                all_standings_points[(row["id_player"], row["id_round"])] = row["points"]
+            workbook = self.build_standings_workbook(
+                connection, round_list, prev_round_map, all_standings_points
+            )
 
-            workbook = Workbook()
-
-            for round_id, round_name in round_list:
-                prev_round_id = prev_round_map.get(round_id)
-
-                matches = connection.execute(
-                    """
-                    SELECT
-                        m.id_player_1,
-                        m.id_player_2,
-                        m.table_number,
-                        p1.display_name AS player_1_name,
-                        p2.display_name AS player_2_name,
-                        d1.name AS player_1_decklist_name,
-                        d2.name AS player_2_decklist_name,
-                        s1.match_record AS text_result,
-                        s1.game_record AS game_record
-                    FROM match m
-                    LEFT JOIN player p1 ON m.id_player_1 = p1.id
-                    LEFT JOIN player p2 ON m.id_player_2 = p2.id
-                    LEFT JOIN deck d1 ON p1.decklist_id = d1.id
-                    LEFT JOIN deck d2 ON p2.decklist_id = d2.id
-                    LEFT JOIN standings s1 ON s1.id_player = m.id_player_1 AND s1.id_round = m.id_round
-                    WHERE m.id_round = ?
-                    ORDER BY m.id
-                    """,
-                    (round_id,),
-                ).fetchall()
-
-                if not matches:
-                    continue
-
-                sheet_name = round_name[:31]
-                if sheet_name in workbook.sheetnames:
-                    sheet_name = f"{sheet_name[:27]}..."
-                sheet = workbook.create_sheet(title=sheet_name)
-                sheet.append(
-                    [
-                        "player_1",
-                        "player_1_points",
-                        "player_2",
-                        "player_2_points",
-                        "text_result",
-                        "game_record",
-                        "player_1_decklist_name",
-                        "player_2_decklist_name",
-                        "table",
-                    ]
-                )
-
-                for match in matches:
-                    p1_points = (
-                        all_standings_points.get((match["id_player_1"], prev_round_id), 0)
-                        if prev_round_id is not None
-                        else 0
-                    )
-                    p2_points = (
-                        all_standings_points.get((match["id_player_2"], prev_round_id), 0)
-                        if prev_round_id is not None
-                        else 0
-                    )
-
-                    sheet.append(
-                        [
-                            match["player_1_name"],
-                            p1_points,
-                            match["player_2_name"],
-                            p2_points,
-                            match["text_result"],
-                            match["game_record"],
-                            match["player_1_decklist_name"],
-                            match["player_2_decklist_name"],
-                            match["table_number"],
-                        ]
-                    )
-
-            if "Sheet" in workbook.sheetnames:
-                del workbook["Sheet"]
+            if len(workbook.sheetnames) == 0:
+                print("No match data found.\n")
+                return
 
             file_path = output_dir / file_name
             workbook.save(file_path)
@@ -185,22 +211,28 @@ Eternal Weekend Tournament Toolkit
         finally:
             connection.close()
 
+    def get_card_stats(self, connection, is_maindeck: bool) -> list:
+        """Get cards grouped by name with total count for maindeck or sideboard."""
+        flag = 1 if is_maindeck else 0
+        return connection.execute(
+            """
+            SELECT c.name AS card_name, SUM(dl.total) AS total
+            FROM decklist dl
+            JOIN card c ON dl.id_card = c.id
+            WHERE dl.is_maindeck = ?
+            GROUP BY c.name
+            ORDER BY total DESC, c.name ASC
+            """,
+            (flag,),
+        ).fetchall()
+
     def get_maindeck_stats(self):
         file_name = "maindeck_cards.xlsx"
         output_dir = ExcelHelper.prepare_output_file(file_name)
 
         connection = Db().get_connection()
         try:
-            rows = connection.execute(
-                """
-                SELECT c.name AS card_name, SUM(dl.total) AS total
-                FROM decklist dl
-                JOIN card c ON dl.id_card = c.id
-                WHERE dl.is_maindeck = 1
-                GROUP BY c.name
-                ORDER BY total DESC, c.name ASC
-                """
-            ).fetchall()
+            rows = self.get_card_stats(connection, is_maindeck=True)
         finally:
             connection.close()
 
@@ -225,16 +257,7 @@ Eternal Weekend Tournament Toolkit
 
         connection = Db().get_connection()
         try:
-            rows = connection.execute(
-                """
-                SELECT c.name AS card_name, SUM(dl.total) AS total
-                FROM decklist dl
-                JOIN card c ON dl.id_card = c.id
-                WHERE dl.is_sideboard = 1
-                GROUP BY c.name
-                ORDER BY total DESC, c.name ASC
-                """
-            ).fetchall()
+            rows = self.get_card_stats(connection, is_maindeck=False)
         finally:
             connection.close()
 

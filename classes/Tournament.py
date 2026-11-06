@@ -114,6 +114,97 @@ class Tournament:
         all_player_standings = []
         decks = {}
         print("\n - Fetching round data...")
+        all_player_standings = cls.fetch_all_round_standings(
+            session, rounds, enriched_rounds, round_objects, players, decks
+        )
+
+        # Fetch matches using the same requests session
+        print("\n - Fetching match data...")
+        all_matches.extend(cls.fetch_all_round_matches(session, rounds))
+
+        print(f"\n - Fetching decklist details for {len(decks)} decks...")
+        deck_details = cls.fetch_all_decklist_details(session, decks)
+
+        data = {
+            "tournament_id": tournament_id,
+            "tournament_name": tournament_name,
+            "url": url,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "rounds_count": len(enriched_rounds),
+            "rounds": enriched_rounds,
+        }
+
+        connection = Db().get_connection()
+        try:
+            cls.save_to_database(
+                connection, round_objects, decks, deck_details,
+                players, all_player_standings, all_matches
+            )
+        finally:
+            connection.close()
+
+        output_path = RAW_DATA_DIR / file_name
+        output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f" - Tournament data saved to {output_path}")
+        return data
+
+    @classmethod
+    def fetch_all_decklist_details(cls, session: requests.Session, decks: dict) -> dict:
+        """Fetch card details for all decks."""
+        deck_details = {}
+        for deck_id in decks:
+            try:
+                details = session.get(f"{DECKLIST_DETAILS_URL}/{deck_id}", timeout=60)
+                details.raise_for_status()
+                deck_details[deck_id] = details.json()
+            except Exception as e:
+                print(f"  Failed to fetch decklist {deck_id}: {e}")
+        return deck_details
+
+    @classmethod
+    def save_to_database(
+        cls,
+        connection,
+        round_objects,
+        decks,
+        deck_details,
+        players,
+        all_player_standings,
+        all_matches,
+    ) -> None:
+        """Save all tournament data to the database."""
+        Round.insert_all(connection, round_objects)
+        Deck.insert_all(connection, decks)
+
+        all_cards = {}
+        for details in deck_details.values():
+            all_cards.update(Card.from_decklist_records(details.get("Records", [])))
+        name_to_id = Card.insert_all(connection, all_cards)
+
+        all_decklists = []
+        for deck_id, details in deck_details.items():
+            all_decklists.extend(
+                Decklist.from_decklist_details(deck_id, details, name_to_id)
+            )
+        Decklist.insert_all(connection, all_decklists)
+
+        Player.insert_all(connection, list(players.values()))
+        Standings.insert_all(connection, all_player_standings)
+        Match.insert_all(connection, all_matches)
+
+    @classmethod
+    def fetch_all_round_standings(
+        cls,
+        session: requests.Session,
+        rounds: list,
+        enriched_rounds: list,
+        round_objects: list,
+        players: dict,
+        decks: dict,
+    ) -> list:
+        """Fetch standings data for all rounds."""
+        all_player_standings = []
+        print("\n - Fetching round data...")
         for round_info in rounds:
             round_id = round_info["round_id"]
             raw_standings = Standings.fetch_round_standings(session, round_id)
@@ -148,7 +239,12 @@ class Tournament:
                 f"   {len(raw_standings)} standings fetched"
             )
 
-        # Fetch matches using the same requests session
+        return all_player_standings
+
+    @classmethod
+    def fetch_all_round_matches(cls, session: requests.Session, rounds: list) -> list:
+        """Fetch match data for all rounds using Playwright's APIRequestContext."""
+        all_matches = []
         print("\n - Fetching match data...")
         for round_info in rounds:
             round_id = round_info["round_id"]
@@ -165,50 +261,4 @@ class Tournament:
                     f"   Round {round_info['round_name']} ({round_id}): "
                     f"   matches unavailable ({e})"
                 )
-
-        print(f"\n - Fetching decklist details for {len(decks)} decks...")
-        deck_details = {}
-        for deck_id in decks:
-            try:
-                details = session.get(f"{DECKLIST_DETAILS_URL}/{deck_id}", timeout=60)
-                details.raise_for_status()
-                deck_details[deck_id] = details.json()
-            except Exception as e:
-                print(f"  Failed to fetch decklist {deck_id}: {e}")
-
-        data = {
-            "tournament_id": tournament_id,
-            "tournament_name": tournament_name,
-            "url": url,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "rounds_count": len(enriched_rounds),
-            "rounds": enriched_rounds,
-        }
-
-        connection = Db().get_connection()
-        try:
-            Round.insert_all(connection, round_objects)
-            Deck.insert_all(connection, decks)
-
-            all_cards = {}
-            for details in deck_details.values():
-                all_cards.update(Card.from_decklist_records(details.get("Records", [])))
-            name_to_id = Card.insert_all(connection, all_cards)
-
-            all_decklists = []
-            for deck_id, details in deck_details.items():
-                all_decklists.extend(
-                    Decklist.from_decklist_details(deck_id, details, name_to_id)
-                )
-            Decklist.insert_all(connection, all_decklists)
-
-            Player.insert_all(connection, list(players.values()))
-            Standings.insert_all(connection, all_player_standings)
-            Match.insert_all(connection, all_matches)
-        finally:
-            connection.close()
-
-        output_path = RAW_DATA_DIR / file_name
-        output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f" - Tournament data saved to {output_path}")
-        return data
+        return all_matches
