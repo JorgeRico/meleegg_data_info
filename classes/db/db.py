@@ -38,7 +38,7 @@ class Db:
             """
             CREATE TABLE IF NOT EXISTS card (
                 id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL
+                name TEXT NOT NULL UNIQUE
             )
             """
         )
