@@ -27,6 +27,15 @@ USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
+HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Origin": "https://melee.gg",
+    "Referer": "https://melee.gg/",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "X-Requested-With": "XMLHttpRequest",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+}
+
 DECKLIST_DETAILS_URL = "https://melee.gg/Decklist/GetDecklistDetails"
 
 
@@ -46,16 +55,7 @@ class Tournament:
     @classmethod
     def _build_session(cls) -> requests.Session:
         session = requests.Session()
-        session.headers.update(
-            {
-                "User-Agent": USER_AGENT,
-                "Origin": "https://melee.gg",
-                "Referer": "https://melee.gg/",
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "X-Requested-With": "XMLHttpRequest",
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            }
-        )
+        session.headers.update(HEADERS)
         return session
 
     @classmethod
@@ -63,7 +63,7 @@ class Tournament:
         """Fetch the tournament page with requests and extract metadata + rounds using BeautifulSoup."""
         tournament_id = cls.get_tournament_id(url)
         session = requests.Session()
-        session.headers.update({"User-Agent": USER_AGENT})
+        session.headers.update(HEADERS)
         response = session.get(url, timeout=60)
         response.raise_for_status()
 
